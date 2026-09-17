@@ -76,3 +76,4 @@ Plugins/**/Intermediate/*
 .claude/    # impostazioni personali, incluse le approvazioni
 .mcp.json
 .mcp.json
+.mcp.json
