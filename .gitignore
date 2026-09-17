@@ -72,5 +72,5 @@ Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
 # Claude Code
-.mcp.json                      # server MCP project-scoped
+.mcp                      # server MCP project-scoped
 .claude/    # impostazioni personali, incluse le approvazioni
