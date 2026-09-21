@@ -71,8 +71,9 @@ Intermediate/*
 Plugins/**/Intermediate/*
 
 # Cache files for the editor to use
+DerivedDataCache/*
 # Claude Code
-.mcp.json                      # server MCP project-scoped
-.claude/    # impostazioni personali, incluse le approvazioni
+# server MCP project-scoped
 .mcp.json
-.mcp.json
+# impostazioni personali, incluse le approvazioni
+.claude/
