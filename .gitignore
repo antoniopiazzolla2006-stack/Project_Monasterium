@@ -75,3 +75,4 @@ Plugins/**/Intermediate/*
 .mcp.json                      # server MCP project-scoped
 .claude/    # impostazioni personali, incluse le approvazioni
 .mcp.json
+.mcp.json
