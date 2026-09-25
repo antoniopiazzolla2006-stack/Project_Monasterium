@@ -1,0 +1,542 @@
+ ▐▛███▛█   Claude Code v2.1.281
+▝▜██████▀  Opus 5.5 · Claude Pro
+  ▝▝ ▝▝    ~\Documents\Unreal Projects\Project_Monasterium
+
+  Get to finished work sooner with Opus 5.5. Switch anytime with /model.
+
+❯ mi puoi spiegare come posso applicare la logica che ti descriverò adesso?     
+  devo fare che quando si avvia l'interact tra il player e l'abate, l'npc deve  
+  cambiare stato da: seguire il patrol point a seguire il player. quando arriva 
+  vicino al player si attiva la UI dei sottotitoli che di dice le missioni da   
+  fare. una volta chiusa la UI l'npc si cambia da seguire il player a seguire   
+  di nuovo i patrol point. quando ci sarà che la missione delle candele (che    
+  puoi trovare la bool sulla game mode) l'abate andrà a un patrol point         
+  prestabilito e rimarrà lì.                                                    
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Let me peek at names inside the key assets (blackboard keys, variables, game
+  mode, UI widgets).
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Ho guardato gli asset del progetto. Sono file binari, quindi non posso
+  modificare i Blueprint da qui, ma posso spiegarti come farlo partendo da
+  quello che avete già. Nel progetto ci sono:
+
+  - BB_NPC: le chiavi PatrolActor, TargetActor e SelfActor.
+  - BT_NPC: Selector/Sequence con MoveTo, Wait e BTT_SetNextPatrolPoint.
+  - BP_AiController: le funzioni SetTargetActor e ClearTargetActor.
+  - BP_Abate: l'array PatrolPoints, AdvancePatrolPoint, l'evento Interact
+    dell'interfaccia BPI_Interactable e la chiamata a GetCandleMissionCompleted.
+  - BP_GameMode: CandleMissionCompleted, l'event dispatcher
+    OnCandlesMissionComplete e WBP_Dialogue.
+
+  1. Usa uno stato unico nella Blackboard
+
+  Invece di più bool, crea un enum E_AbbotState con quattro valori:
+  - Patrol
+  - FollowPlayer
+  - Talking
+  - Stationary
+
+  In BB_NPC aggiungi due chiavi:
+  - AbbotState di tipo Enum, con Enum Type = E_AbbotState.
+  - FinalPoint di tipo Object, con Base Class = Actor.
+
+  Lo stato Talking serve perché, senza di esso, quando l'abate arriva dal player
+  il Behavior Tree ricomincerebbe il ciclo e riaprirebbe la UI all'infinito.
+
+  2. Struttura del Behavior Tree (BT_NPC)
+
+  ROOT
+  └── Selector
+      ├── [Decorator Blackboard: AbbotState == Stationary]   (Observer Aborts: 
+  Both)
+      │   └── Sequence
+      │       ├── MoveTo  (Key: FinalPoint)
+      │       └── Wait 5s          ← resta lì in loop
+      │
+      ├── [Decorator Blackboard: AbbotState == FollowPlayer] (Observer Aborts: 
+  Both)
+      │   └── Sequence
+      │       ├── MoveTo  (Key: TargetActor, Acceptable Radius ~150)
+      │       └── BTT_StartDialogue   ← task nuovo
+      │
+      ├── [Decorator Blackboard: AbbotState == Talking]      (Observer Aborts: 
+  Both)
+      │   └── Wait 0.5s            ← sta fermo mentre la UI è aperta
+      │
+      └── [Decorator Blackboard: AbbotState == Patrol]       (Observer Aborts: 
+  Both)
+          └── Sequence (quella che avete già)
+              ├── MoveTo (PatrolActor)
+              ├── Wait
+              └── BTT_SetNextPatrolPoint
+
+  Nei decorator imposta Observer Aborts = Both. Così, quando cambi AbbotState,
+  il ramo attivo viene interrotto subito e l'abate cambia comportamento senza
+  aspettare la fine del MoveTo o del Wait. Siccome TargetActor è un Actor, il
+  MoveTo segue il player anche mentre si muove.
+
+  3. Interact: da patrol a segui player (BP_Abate)
+
+  Nell'evento Interact (BPI_Interactable):
+
+  1. Get Game Mode → Cast to BP_GameMode → GetCandleMissionCompleted. Se è true,
+     esci: l'abate è già nella sua posizione finale.
+  2. Se lo stato attuale non è Patrol, esci. Questo evita di riattivare il
+     dialogo mentre ti sta già seguendo o parlando.
+  3. Get Controller → Cast to BP_AiController, poi:
+     - SetTargetActor(Get Player Character) (la funzione esiste già)
+     - Get Blackboard → Set Value as Enum con Key AbbotState e valore
+       FollowPlayer
+
+  Conviene creare in BP_AiController una funzione SetAbbotState(NewState) che fa
+  il Set Value as Enum, così la richiami ovunque.
+
+  4. Arriva vicino al player: mostra i sottotitoli
+
+  Crea un task BTT_StartDialogue (parent BTTask_BlueprintBase) con l'evento
+  Receive Execute AI:
+  - Controlled Pawn → Cast to BP_Abate → chiama la funzione ShowMissionDialogue
+    (vedi sotto).
+  - Finish Execute (Success = true).
+
+  In BP_Abate crea la funzione ShowMissionDialogue:
+  1. SetAbbotState(Talking)
+  2. Create Widget (WBP_Dialogue) → imposta il testo delle missioni → Add to 
+     Viewport
+  3. Bind Event to OnDialogueClosed (lo aggiungi al punto 5) → collegalo a un
+     custom event OnDialogueClosed_Handler
+  4. Se la UI va chiusa col mouse o con un bottone: Set Input Mode UI Only /
+     Game and UI e Show Mouse Cursor = true sul Player Controller.
+
+  Se vuoi che l'abate si giri verso il player mentre parla, aggiungi prima un
+  Set Actor Rotation con Find Look at Rotation, oppure il nodo Set Focus sul
+  controller.
+
+  5. UI chiusa: torna al patrol
+
+  In WBP_Dialogue:
+  - Aggiungi un Event Dispatcher OnDialogueClosed.
+  - Nel punto in cui chiudi la UI (bottone, tasto E, fine del testo): Call 
+    OnDialogueClosed → Remove from Parent.
+
+  In BP_Abate, nel custom event OnDialogueClosed_Handler:
+  1. Ripristina Set Input Mode Game Only e Show Mouse Cursor = false.
+  2. BP_AiController → ClearTargetActor.
+  3. Branch su GetCandleMissionCompleted:
+     - false → SetAbbotState(Patrol)
+     - true → SetAbbotState(Stationary). Copre il caso in cui la missione si
+       completa mentre il dialogo è aperto.
+
+  6. Missione candele completata: punto fisso
+
+  In BP_Abate aggiungi una variabile FinalPatrolPoint di tipo BP_PatrolPoint
+  (Object Reference), con Instance Editable attivo. Poi nel livello selezioni
+  l'abate e scegli il punto dal menu a tendina.
+
+  Nel BeginPlay di BP_Abate:
+  1. Get Game Mode → Cast to BP_GameMode → Bind Event to 
+     OnCandlesMissionComplete → custom event GoToFinalPoint.
+  2. Subito dopo, fai un Branch su GetCandleMissionCompleted. Se è già true (per
+     esempio dopo un caricamento), chiama direttamente GoToFinalPoint.
+
+  Custom event GoToFinalPoint:
+  1. Se lo stato è Talking, non fare niente: ci pensa l'handler del punto 5
+     quando la UI si chiude.
+  2. Altrimenti: Get Blackboard → Set Value as Object con Key FinalPoint e
+     valore FinalPatrolPoint.
+  3. ClearTargetActor, poi SetAbbotState(Stationary).
+
+  Il FinalPoint va impostato anche nel caso Talking. Il modo più semplice è
+  impostarlo sempre per primo in GoToFinalPoint, prima del controllo sullo
+  stato.
+
+  Il dispatcher OnCandlesMissionComplete esiste già nel GameMode. Assicurati
+  solo che venga chiamato (Call OnCandlesMissionComplete) nello stesso punto in
+  cui imposti CandleMissionCompleted = true.
+
+  Riepilogo del flusso
+
+  Patrol ──Interact──▶ FollowPlayer ──arriva vicino──▶ Talking (UI aperta)
+     ▲                                                    │
+     └──────────── UI chiusa (missione non finita) ◀──────┘
+                                                          │
+  Missione candele completata ───────────────────▶ Stationary (va a FinalPoint e
+  resta lì)
+
+  Consigli per il debug:
+  - In Play, apri BT_NPC e scegli l'abate dal menu di debug: vedi quale ramo è
+    attivo e i valori della Blackboard in tempo reale.
+  - Premi ' (apostrofo) in gioco per il Gameplay Debugger, che mostra lo stato
+    del BT sopra l'NPC.
+  - Se l'abate non si muove, controlla che nel livello ci sia un NavMesh Bounds 
+    Volume che copre anche il punto finale.
+
+  Se vuoi, posso anche scriverti il pseudo-codice nodo per nodo di una di queste
+  parti, per esempio il binding del dispatcher o il task.
+
+✻ Cooked for 1m 10s · done 16:12
+
+❯ partiamo poco per volta. creami l'enum e aggiungimi le chiavi in BB_NPC       
+
+  Ran 1 shell command (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ partiamo poco per volta. creami l'enum (sulla cartella AbbotIAController) e   
+  aggiungimi le chiavi in BB_NPC                                                
+
+  Ran 4 shell commands (ctrl+o to expand)
+
+● Non posso creare questi asset io. Enum e Blackboard sono file .uasset binari:
+  scriverli da fuori rischia di corromperli, soprattutto adesso che l'Unreal
+  Editor è aperto e li tiene caricati. Ho controllato anche la strada dello
+  scripting Python dentro l'editor. Riuscirebbe ad aggiungere le chiavi alla
+  Blackboard, ma non ha funzioni per inserire i valori dentro un enum, quindi
+  una parte andrebbe comunque fatta a mano. Farlo nell'editor ci mette circa 2
+  minuti:
+
+  1. Enum E_AbbotState
+
+  1. Nel Content Browser vai in Content/Monasterium/Monasterium/blueprints/Missi
+     onHandler/AbbotIAController.
+  2. Tasto destro in uno spazio vuoto → Blueprint → Enumeration.
+  3. Chiamalo E_AbbotState e aprilo.
+  4. Premi Add Enumerator 4 volte e scrivi nei Display Name, in quest'ordine:
+     - Patrol
+     - FollowPlayer
+     - Talking
+     - Stationary
+  5. Save.
+
+  Metti Patrol per primo: è il valore di default della chiave, quindi l'abate
+  parte già in patrol senza doverlo impostare nel BeginPlay.
+
+  2. Chiavi in BB_NPC
+
+  Apri BB_NPC (nella stessa cartella).
+
+  Chiave AbbotState:
+  1. New Key → Enum.
+  2. Rinominala AbbotState.
+  3. Nel pannello Blackboard Details a destra espandi Key Type → Enum Type =
+     E_AbbotState.
+     - Lascia vuoto il campo Enum Name: serve solo per gli enum C++.
+
+  Chiave FinalPoint:
+  1. New Key → Object.
+  2. Rinominala FinalPoint.
+  3. Key Type → Base Class = Actor.
+     - Puoi mettere anche BP_PatrolPoint per essere più restrittivo. Con Actor
+       il MoveTo funziona in ogni caso.
+
+  Save.
+
+  Controllo
+
+  Alla fine BB_NPC deve avere 5 chiavi: SelfActor, PatrolActor, TargetActor,
+  AbbotState e FinalPoint.
+
+  Quando hai fatto dimmelo. Il prossimo passo è ristrutturare BT_NPC con il
+  Selector e i decorator su AbbotState.
+
+✻ Cogitated for 3m 23s · done 16:40
+
+❯ riprova adesso a farlo tu                                                     
+
+  Searched for 1 pattern, ran 2 shell commands (ctrl+o to expand)
+
+● Background command "Locate Python plugin and relevant headers" completed (exit
+code 0)
+
+● Python is enabled in the editor with remote execution on. I'll connect to the
+  running editor.
+
+  Ran 1 shell command (ctrl+o to expand)
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ ho scoperto che era spartio il file mcp.jason. l'ho rimesso. riprova adesso a 
+  farlo tu                                                                      
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Il file .mcp.json adesso c'è e il server unreal-mcp su 127.0.0.1:8000
+  risponde. Però questa sessione non lo vede: Claude Code carica i server MCP
+  solo all'avvio, e quando il file mancava non l'ha caricato. Infatti non ho
+  nessun tool Unreal disponibile.
+
+  Per collegarlo:
+
+  1. Scrivi /mcp qui nel prompt e controlla se unreal-mcp compare. Se c'è,
+     selezionalo e fai connect/reconnect. Se ti chiede di approvare il server
+     del progetto, approvalo.
+  2. Se non compare, chiudi Claude Code e riaprilo nella cartella del progetto.
+     Il file .mcp.json verrà letto all'avvio.
+
+  Quando è collegato, scrivimi "fatto": creo E_AbbotState in AbbotIAController e
+  aggiungo AbbotState e FinalPoint a BB_NPC tramite l'editor.
+
+✻ Worked for 14s · done 16:43
+
+❯ riprova ora                                                                   
+
+  Called unreal-mcp 4 times, ran 1 shell command (ctrl+o to expand)
+
+● Sto controllando quali tool del server Unreal possono creare un enum; il
+  toolset dei Blueprint non ne ha uno.
+
+  Called unreal-mcp 6 times (ctrl+o to expand)
+
+● Il server non ha un tool per creare enum, ma posso modificare BB_NPC. Intanto
+  guardo come sono salvate le chiavi esistenti.
+
+  Called unreal-mcp 2 times, ran 1 shell command (ctrl+o to expand)
+
+● Nessun tool può creare un enum. Aggiungo intanto le due chiavi a BB_NPC,
+  mantenendo quelle esistenti.
+
+  Called unreal-mcp 2 times (ctrl+o to expand)
+
+● Instanced subobjects created. Setting FinalPoint base class to Actor and
+  saving.
+
+  Called unreal-mcp 3 times (ctrl+o to expand)
+
+● Ho aggiunto le due chiavi a BB_NPC e l'ho salvata. L'enum invece non l'ho
+  potuto creare: il server Unreal MCP non ha nessun tool per creare un enum, può
+  creare solo Blueprint e Data Asset.
+
+  BB_NPC adesso ha 5 chiavi:
+  - SelfActor, TargetActor, PatrolActor: quelle che c'erano già, non le ho
+    toccate.
+  - AbbotState, di tipo Enum. Il campo Enum Type per ora è vuoto, perché l'enum
+    ancora non esiste.
+  - FinalPoint, di tipo Object con Base Class = Actor. Ho riletto il valore dopo
+    averlo impostato e risulta Actor.
+
+  Per l'enum, circa 30 secondi a mano:
+  1. Vai nella cartella AbbotIAController, tasto destro → Blueprint →
+     Enumeration → chiamalo E_AbbotState.
+  2. Aprilo e aggiungi 4 enumerator in quest'ordine: Patrol, FollowPlayer,
+     Talking, Stationary.
+  3. Save.
+
+  Quando l'hai creato dimmelo: collego io E_AbbotState alla chiave AbbotState in
+  BB_NPC. Poi, se vuoi, passiamo al Behavior Tree.
+
+✻ Churned for 1m 24s · done 16:45
+
+❯ ho creato l'enum e l'ho collegato alla chiave. ora fammi la modifica del      
+  Behaviour Tree                                                                
+
+  Called unreal-mcp 5 times (ctrl+o to expand)
+
+● Ho verificato che AbbotState in BB_NPC punta a E_AbbotState e che il valore di
+  default è Patrol.
+
+  Il Behavior Tree però non riesco a modificarlo io. Il server Unreal MCP non ha
+  tool per i Behavior Tree, e il grafo dell'editor (BTGraph) non si può leggere
+  né scrivere tramite le proprietà. Potrei cambiare i nodi runtime, ma l'editor
+  li rigenera dal grafo appena apri o salvi il BT, quindi le modifiche
+  andrebbero perse o si romperebbe tutto. Va fatto a mano.
+
+  Adesso BT_NPC è: Root → Selector → Sequence, cioè il patrol. Il Selector lo
+  teniamo e aggiungiamo altri tre rami a sinistra del patrol: nel Selector la
+  priorità va da sinistra a destra.
+
+  Struttura finale (da sinistra a destra sotto il Selector)
+
+  ┌─────┬──────────────────┬──────────────────────┬─────────────────────────┐
+  │  #  │       Ramo       │      Decorator       │        Contenuto        │
+  │     │                  │     (Blackboard)     │                         │
+  ├─────┼──────────────────┼──────────────────────┼─────────────────────────┤
+  │ 1   │ Stationary       │ AbbotState Is Equal  │ Sequence → MoveTo       │
+  │     │                  │ To Stationary        │ (FinalPoint) → Wait 5   │
+  ├─────┼──────────────────┼──────────────────────┼─────────────────────────┤
+  │     │                  │ AbbotState Is Equal  │ Sequence → MoveTo       │
+  │ 2   │ FollowPlayer     │ To FollowPlayer      │ (TargetActor) → Wait    │
+  │     │                  │                      │ 0.1*                    │
+  ├─────┼──────────────────┼──────────────────────┼─────────────────────────┤
+  │ 3   │ Talking          │ AbbotState Is Equal  │ Wait 0.5                │
+  │     │                  │ To Talking           │                         │
+  ├─────┼──────────────────┼──────────────────────┼─────────────────────────┤
+  │ 4   │ Patrol (quella   │ AbbotState Is Equal  │ la tua Sequence         │
+  │     │ esistente)       │ To Patrol            │ attuale, non va toccata │
+  └─────┴──────────────────┴──────────────────────┴─────────────────────────┘
+
+  * Il Wait 0.1 è un segnaposto. Al suo posto andrà il task BTT_StartDialogue,
+  che faremo nel prossimo passo.
+
+  Passaggi
+
+  1. Decorator sul patrol esistente
+  - Tasto destro sulla Sequence del patrol → Add Decorator → Blackboard.
+  - Nei Details imposta:
+    - Key Query = Is Equal To
+    - Blackboard Key = AbbotState
+    - Key Value = Patrol
+    - Observer Aborts = Both
+
+  2. Ramo Stationary
+  - Trascina dal Selector → Sequence e mettila a sinistra di tutto.
+  - Aggiungi un decorator Blackboard con AbbotState Is Equal To Stationary e
+    Observer Aborts Both.
+  - Figli della Sequence:
+    - Move To con Blackboard Key = FinalPoint
+    - Wait con Wait Time = 5
+
+  3. Ramo FollowPlayer
+  - Nuova Sequence a destra di Stationary.
+  - Decorator Blackboard: AbbotState Is Equal To FollowPlayer, Observer Aborts
+    Both.
+  - Figli:
+    - Move To con Blackboard Key = TargetActor e Acceptable Radius = 150
+    - Wait con Wait Time = 0.1 (segnaposto)
+
+  4. Ramo Talking
+  - Dal Selector trascina direttamente un task Wait (Wait Time 0.5) e mettilo
+    tra FollowPlayer e Patrol.
+  - Aggiungigli il decorator Blackboard: AbbotState Is Equal To Talking,
+    Observer Aborts Both.
+
+  5. Save
+
+  I numerini sopra i nodi devono risultare in quest'ordine: Stationary →
+  FollowPlayer → Talking → Patrol. Se sono sbagliati, trascina i rami
+  orizzontalmente.
+
+  Test veloce
+
+  Il default di AbbotState è Patrol, quindi in Play l'abate deve continuare a
+  pattugliare come prima. Poi puoi fare una prova:
+  - In BP_AiController, nel BeginPlay dopo Run Behavior Tree, metti un Set Value
+    as Enum su AbbotState con valore FollowPlayer.
+  - Aggiungi anche SetTargetActor(Get Player Character).
+  - In Play l'abate dovrebbe venirti dietro.
+
+  Ricordati di togliere la prova quando hai finito.
+
+  Il prossimo passo è BTT_StartDialogue. Quello invece posso crearlo io: è un
+  Blueprint Task, e per quelli ho i tool per creare l'asset e scrivere il grafo.
+  Vuoi che lo faccia?
+
+✻ Cogitated for 42s · done 16:48
+❯ siccome devo andare e dovrò riprendere questo lavoro dopo fammi adesso un     
+  riassunto dei passaggi da completare per ottenere il risutlato così io posso  
+  esportare la chat e farlo dopo.                                               
+
+● Riepilogo: logica dell'Abate (patrol → segue il player → dialogo → patrol / 
+  punto fisso)
+
+  ✅ Già fatto
+
+  - E_AbbotState (enum) in .../MissionHandler/AbbotIAController: Patrol,
+    FollowPlayer, Talking, Stationary.
+  - BB_NPC, chiavi aggiunte:
+    - AbbotState: Enum, collegata a E_AbbotState, default Patrol.
+    - FinalPoint: Object, Base Class Actor.
+
+  ⬜ Da fare
+
+  1. Behavior Tree BT_NPC (a mano)
+
+  Sotto il Selector esistente, da sinistra a destra. Ogni ramo ha un decorator
+  Blackboard su AbbotState con Observer Aborts = Both:
+
+  ┌─────┬───────────────┬───────────────────────────────────────────────────┐
+  │  #  │   Decorator   │                     Contenuto                     │
+  ├─────┼───────────────┼───────────────────────────────────────────────────┤
+  │ 1   │ == Stationary │ Sequence → Move To (FinalPoint) → Wait 5          │
+  ├─────┼───────────────┼───────────────────────────────────────────────────┤
+  │     │ ==            │ Sequence → Move To (TargetActor, Acceptable       │
+  │ 2   │ FollowPlayer  │ Radius 150) → BTT_StartDialogue (per ora un Wait  │
+  │     │               │ 0.1 segnaposto)                                   │
+  ├─────┼───────────────┼───────────────────────────────────────────────────┤
+  │ 3   │ == Talking    │ Wait 0.5                                          │
+  ├─────┼───────────────┼───────────────────────────────────────────────────┤
+  │ 4   │ == Patrol     │ la Sequence patrol già esistente, aggiungi solo   │
+  │     │               │ il decorator                                      │
+  └─────┴───────────────┴───────────────────────────────────────────────────┘
+
+  2. BP_AiController
+
+  - Crea la funzione SetAbbotState(NewState: E_AbbotState): Get Blackboard → Set
+    Value as Enum (Key AbbotState).
+  - SetTargetActor e ClearTargetActor esistono già.
+
+  3. WBP_Dialogue
+
+  - Aggiungi l'event dispatcher OnDialogueClosed.
+  - Nel punto in cui chiudi la UI (bottone o tasto): Call OnDialogueClosed →
+    Remove from Parent.
+
+  4. BP_Abate
+
+  - Nuova variabile FinalPatrolPoint (tipo BP_PatrolPoint, Instance Editable).
+    Assegnala nel livello selezionando l'abate.
+  - Event Interact (BPI_Interactable):
+    a. GameMode → GetCandleMissionCompleted → se è true esci.
+    b. Se lo stato attuale non è Patrol esci (per non riattivare il dialogo).
+    c. Controller → Cast BP_AiController → SetTargetActor(Get Player Character)
+       → SetAbbotState(FollowPlayer).
+  - Funzione ShowMissionDialogue:
+    a. SetAbbotState(Talking).
+    b. Create Widget WBP_Dialogue → imposta il testo delle missioni → Add to 
+       Viewport.
+    c. Bind Event to OnDialogueClosed → custom event OnDialogueClosed_Handler.
+    d. Input Mode UI e mostra il cursore, se serve.
+    e. Opzionale: l'abate si gira verso il player (Find Look at Rotation).
+  - Custom event OnDialogueClosed_Handler:
+    a. Input Mode Game Only e nascondi il cursore.
+    b. ClearTargetActor.
+    c. Branch su GetCandleMissionCompleted: se è false → SetAbbotState(Patrol),
+       se è true → GoToFinalPoint.
+  - Custom event GoToFinalPoint:
+    a. Blackboard Set Value as Object (FinalPoint = FinalPatrolPoint).
+    b. Se lo stato è Talking esci: quando la UI si chiude ci pensa l'handler.
+    c. Altrimenti ClearTargetActor → SetAbbotState(Stationary).
+  - BeginPlay:
+    a. GameMode → Cast BP_GameMode → Bind Event to OnCandlesMissionComplete →
+       GoToFinalPoint.
+    b. Se GetCandleMissionCompleted è già true → GoToFinalPoint.
+
+  5. Task BTT_StartDialogue (parent BTTask_BlueprintBase)
+
+  - Event Receive Execute AI → Controlled Pawn → Cast BP_Abate →
+    ShowMissionDialogue → Finish Execute (Success).
+  - Poi nel BT metti questo task al posto del Wait 0.1 segnaposto (ramo
+    FollowPlayer).
+
+  6. BP_GameMode
+
+  - Controlla che, dove imposti CandleMissionCompleted = true, venga fatto anche
+    Call OnCandlesMissionComplete.
+
+  7. Test
+
+  - Nel livello serve un NavMesh Bounds Volume che copra anche il
+    FinalPatrolPoint.
+  - Debug: in Play apri BT_NPC e seleziona l'abate, oppure premi ' in gioco per
+    il Gameplay Debugger.
+  - Da provare:
+    - Interact → l'abate ti segue → si apre il dialogo.
+    - Chiudi il dialogo → l'abate torna al patrol.
+    - Completa le candele → va al punto finale e resta lì.
+    - Completa le candele con il dialogo aperto → alla chiusura va al punto
+      finale.
+
+  Nota per quando riprendi con Claude
+
+  - Il server unreal-mcp (.mcp.json, http://127.0.0.1:8000/mcp) deve essere
+    attivo con l'editor aperto. Se Claude non vede i tool, usa /mcp per
+    ricollegarlo.
+  - Con l'MCP Claude può:
+    - modificare variabili, funzioni, event dispatcher e grafi dei Blueprint
+      (punti 2, 3, 4, 5, 6);
+    - creare il task BTT_StartDialogue.
+  - Non può creare enum né modificare il Behavior Tree: quelli vanno fatti a
+    mano.
+
+✻ Worked for 18s · done 16:50
