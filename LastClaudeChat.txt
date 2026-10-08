@@ -1,0 +1,88 @@
+# CONTESTO – Sistema Obiettivi (Project_Monasterium, UE 5.8)
+
+## Modalità di lavoro
+Sono uno studente: fai da tutor (vedi la mia memory insegnante). Guidami passo passo,
+niente soluzioni complete, fammi costruire i nodi io e chiedimi di spiegare a parole
+cosa ho fatto prima di andare avanti. Lavoro solo in Blueprint.
+
+## Richiesta iniziale (con i dettagli aggiunti dopo)
+Devo creare un sistema di obiettivi a schermo, solo la LOGICA Blueprint.
+Le animazioni le farà un collaboratore: io lascio dei punti chiari "mostra" / "nascondi"
+(per ora Set Visibility) che lui sostituirà con Play Animation / Play Animation Reverse.
+- Widget 1 "Nuovo obiettivo": in alto al centro, compare per qualche secondo quando
+  l'obiettivo cambia.
+- Widget 2 "Obiettivo corrente": compare quando premo un tasto, resta visibile qualche
+  secondo, poi si nasconde (in futuro con l'animazione di entrata al contrario).
+- Entrambi i pannelli gestiti dallo STESSO Widget Blueprint.
+- La logica sta nella GameMode (siamo autorizzati a modificarla): niente dispatcher,
+  si usa Get Game Mode → Cast To BP_GameMode.
+
+## Decisioni prese
+- GameMode usata: Content/PG/Blueprints/BP_GameMode (è la GlobalDefaultGameMode).
+  Contiene già funzioni setter dello stesso stile, es. "SetAbateMission".
+- Enum E_Objective con voci: None, Chiesa, Monaco, più una voce segnaposto
+  "(DONT USE/REMOVE IT)" voluta da me (serve a evitare il problema del "+" nella Map;
+  scelta mia, va lasciata).
+  Nota: una variabile enum appena creata vale la PRIMA voce dell'enum.
+- Testi degli obiettivi: variabile Map in BP_GameMode chiamata "ObjectivesText"
+  (chiave E_Objective → valore Text). Scartate le opzioni Name come chiave (errori di
+  battitura), Select, Array+indice, Data Table, nome dell'enum come testo.
+  Nota: aggiungendo una voce all'enum bisogna aggiungere a mano anche la riga nella Map;
+  il "+" della Map crea sempre una riga con la prima voce dell'enum come chiave.
+- Variabile "CurrentObjective" (tipo E_Objective, default None): l'enum serve perché
+  Find vuole la chiave e permette confronti sicuri.
+
+## FATTO
+1. Enum E_Objective creato.
+2. Map ObjectivesText creata e riempita in BP_GameMode.
+3. Variabile CurrentObjective creata.
+4. Funzione SetObjective(NewObjective: E_Objective, ShowOnScreen: bool, default
+   consigliato true): Set CurrentObjective → Branch su ShowOnScreen → se true chiama
+   ShowNewObjective. (Bool scelto da me per poter cambiare obiettivo senza popup.)
+5. Funzione ShowNewObjective (senza input, legge direttamente CurrentObjective):
+   Find su ObjectivesText → Branch sul booleano di Find → per ora Print String
+   (segnaposto al posto del widget).
+6. Test da BeginPlay fatti. Con None compare "Objectives(TBD)".
+
+## IN SOSPESO (domande aperte a cui devo rispondere)
+- Il messaggio "Objectives(TBD)" con None arriva dal ramo TRUE (None ha una riga nella
+  Map) o dal ramo FALSE (Find non trova niente)?
+  Consiglio ricevuto: dare a None una riga con un testo per il giocatore, e lasciare il
+  ramo FALSE come avviso di debug per gli sviluppatori (riga mancante nella Map).
+- Domanda di design: la funzione per il tasto "mostra obiettivo corrente" leggerà anche
+  lei CurrentObjective e farà Find, come ShowNewObjective. Cosa hanno in comune e cosa
+  di diverso? (Serve a decidere come organizzare le funzioni.)
+
+## DA FARE
+Fase 2 – Widget (es. WBP_Objectives):
+- Layout: pannello "nuovo obiettivo" in alto al centro + pannello "obiettivo corrente",
+  entrambi nascosti all'inizio; TextBlock con "Is Variable".
+- Funzione/evento per mostrare il nuovo obiettivo: riceve Text, lo scrive, mostra,
+  aspetta X secondi, nasconde.
+- Stessa cosa per l'obiettivo corrente.
+- ATTENZIONE: il nodo Delay non si può usare dentro le funzioni → usare Custom Event
+  nell'Event Graph oppure Set Timer by Event.
+- Decidere cosa succede se il tasto viene premuto di nuovo mentre è già visibile
+  (reset del timer? Retriggerable Delay?).
+- Separare bene i momenti "mostra" e "nascondi" per il collaboratore delle animazioni.
+
+Fase 3 – GameMode (completamento):
+- Variabile riferimento al widget; su BeginPlay: Create Widget (owning player:
+  Get Player Controller 0) → Add to Viewport → salva il riferimento.
+- Sostituire il Print String in ShowNewObjective con la chiamata al widget.
+- Creare la funzione per mostrare l'obiettivo corrente (chiamata dal tasto).
+
+Fase 4 – Input:
+- Input Action (es. IA_ShowObjective) + aggiunta al Mapping Context del player
+  (asset non mio: controllare prima come è fatto).
+- Nel personaggio/controller: evento input → Get Game Mode → Cast To BP_GameMode →
+  funzione "mostra obiettivo corrente".
+
+Fase 5 – Usarlo nel gioco: trigger/NPC → Get Game Mode → Cast → SetObjective(...).
+
+Fase 6 – Test: tasto premuto senza obiettivo (None), tasto premuto due volte di fila,
+cambio obiettivo con ShowOnScreen false.
+
+## Regole del repo da ricordare
+Repo condiviso: backup/branch prima di modificare, non toccare asset di altri senza
+autorizzazione (la GameMode sì, il Mapping Context da verificare).
