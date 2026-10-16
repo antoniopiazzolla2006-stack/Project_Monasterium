@@ -1,0 +1,16 @@
+        === FASE 7: import degli accessori in Unreal === cartella Abate: C:\Users\GAME2527\Desktop\Blender\Abate_Fase7\Abate
+        texture T_Accessori_BC: 2048x2048, sRGB True, TC_DEFAULT: 0>
+        texture T_Accessori_N: 2048x2048, sRGB False, TC_NORMALMAP: 1>
+        texture T_Accessori_ORM: 2048x2048, sRGB False, TC_MASKS: 2>
+        materiale /Game/Outfits/SaioAbate/Materiali/M_SaioAbate_Accessori.M_SaioAbate_Accessori (un lato) e istanza /Game/Outfits/SaioAbate/Materiali/MI_SaioAbate_Accessori.MI_SaioAbate_Accessori creati
+        SM_SaioAbate_Render: ingombro min (-53.85, -19.70, -1.30) max (53.85, 31.56, 160.61) | atteso min (-53.85, -19.70, -1.30) max (53.85, 31.56, 160.61) | scarto 0.00 cm
+        SM_SaioAbate_Render: triangoli 16404 (attesi 16404: saio 7868 + accessori 8536), sezioni di materiale 2 (attese 2)
+        SM_SaioAbate_Render: materiale 0 (M_Lana) = MI_SaioAbate_Lana
+        SM_SaioAbate_Render: materiale 1 (M_Accessori) = MI_SaioAbate_Accessori
+        scheletro del corpo: /MetaHumanCharacter/Female/Medium/NormalWeight/Body/metahuman_base_skel.metahuman_base_skel
+        tolto il materiale automatico /Game/Outfits/SaioAbate/Mesh/M_Accessori (non usato)
+        tentativo con l'importatore Interchange: l'anello non e' finito sullo scheletro del corpo
+        tentativo con l'importatore FBX classico: l'anello non e' finito sullo scheletro del corpo
+ERRORE  anello NON importato sullo scheletro del MetaHuman: fallo a mano (GUIDA_Fase7_Unreal.md, passo 1, riquadro 'Se l'anello non si importa')
+        PROSSIMI PASSI (a mano): ricalcola CA_SaioAbate e OA_SaioAbate, rimetti il saio nel MetaHuman Creator, anello nel guardaroba -> vedi GUIDA_Fase7_Unreal.md
+        ESITO: CONTROLLA LE RIGHE ERRORE
