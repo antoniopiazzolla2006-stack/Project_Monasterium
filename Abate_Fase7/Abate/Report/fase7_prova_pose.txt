@@ -1,6 +1,0 @@
-[1] pesi trasferiti (punto piu' vicino della pelle, max 8 ossa per vertice) in 3 s
-[2] posa di riferimento: accessori/stoffa cordone 75
-[3] camminata: accessori/corpo nessuno | accessori/stoffa in piu' rispetto al riferimento corona 109, cordone 98 | stoffa/pelle visibile 209
-[3] in_ginocchio: accessori/corpo nessuno | accessori/stoffa in piu' rispetto al riferimento cordone 173, corona 92 | stoffa/pelle visibile 296
-[3] braccia_alzate: accessori/corpo nessuno | accessori/stoffa in piu' rispetto al riferimento nessuno | stoffa/pelle visibile 0
-[3] seduto: accessori/corpo nessuno | accessori/stoffa in piu' rispetto al riferimento corona 91, cordone 250 | stoffa/pelle visibile 644
